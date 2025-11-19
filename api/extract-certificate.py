@@ -1,155 +1,91 @@
 from http.server import BaseHTTPRequestHandler
-importar json
-importar re
+import json
+import re
 from io import BytesIO
-importar PyPDF2
 
-def extrair_texto_de_pdf(pdf_bytes):
-    """Extrai texto do PDF usando PyPDF2"""
-    tentar:
-        arquivo_pdf = BytesIO(bytes_pdf)
-        leitor_pdf = PyPDF2.PdfReader(arquivo_pdf)
-        texto = ""
-        para página em pdf_reader.pages:
-            texto += página.extrair_texto()
-        texto de retorno
-    exceto Exception como e:
-        raise Exception(f"Erro ao ler PDF: {str(e)}")
+try:
+    import PyPDF2
+except ImportError:
+    PyPDF2 = None
+
+def extract_text_from_pdf(pdf_bytes):
+    if not PyPDF2:
+        raise Exception("PyPDF2 not available")
+    
+    pdf_file = BytesIO(pdf_bytes)
+    pdf_reader = PyPDF2.PdfReader(pdf_file)
+    text = ""
+    for page in pdf_reader.pages:
+        text += page.extract_text()
+    return text
 
 def extract_caar_data(text):
-    """Dados extras do Certificado CAAR (Piloto)"""
-    dados = {
-        "tipo": "CAAR",
-        "nome": Nenhum,
-        "cpf": Nenhum
-    }
+    data = {"type": "CAAR", "nome": None, "cpf": None}
     
-    # Padrões para extrair nome
-    padrões_de_nome = [
+    name_patterns = [
         r'que\s+([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ][A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑa-záàâãéèêíïóôõöúçñ\s]+?),?\s+CPF',
         r'aprovado.*?([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ][A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑa-záàâãéèêíïóôõöúçñ\s]+?),?\s+CPF',
-        r'certificado.*?([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ][A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑa-záàâãéèêíïóôõöúçñ\s]+?),?\s+CPF',
-        r'piloto.*?([A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑ][A-ZÁÀÂÃÉÈÊÍÏÓÔÕÖÚÇÑa-záàâãéèêíïóôõöúçñ\s]+?),?\s+CPF'
     ]
     
-    para padrão em name_patterns:
-        correspondência = re.pesquisar(padrão, texto, re.IGNORECASE)
-        se houver correspondência:
-            nome = match.group(1).strip()
-            # Limpar espaços extras e capitalizar corretamente
-            nome = ' '.join(nome.split())
-            dados["nome"] = nome.upper()
-            quebrar
+    for pattern in name_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            data["nome"] = match.group(1).strip().upper()
+            break
     
-    # Extrair CPF (com ou sem formatação)
     cpf_match = re.search(r'CPF[\s:]+(\d{3}[.\s]?\d{3}[.\s]?\d{3}[-\s]?\d{2})', text, re.IGNORECASE)
-    se cpf_match:
-        cpf = re.sub(r'\D', '', cpf_match.group(1))
-        dados["cpf"] = cpf
+    if cpf_match:
+        data["cpf"] = re.sub(r'\D', '', cpf_match.group(1))
     
-    retornar dados
+    return data
 
 def extract_anac_data(text):
-    """Dados extras da Certidão ANAC (Drone/Aeronave)"""
-    dados = {
-        "tipo": "ANAC",
-        "registro": Nenhum,
-        "fabricante": Nenhum,
-        "modelo": Nenhum
-    }
+    data = {"type": "ANAC", "registro": None, "fabricante": None, "modelo": None}
     
-    # Extrair Registro ANAC (formato PS-XXXXXXXXX)
     reg_match = re.search(r'(PS-\d{9})', text, re.IGNORECASE)
-    se reg_match:
-        dados["registro"] = reg_match.group(1).upper()
+    if reg_match:
+        data["registro"] = reg_match.group(1).upper()
     
-    # Extrair Fabricante
-    padrões_mfg = [
-        r'Fabricante[:\s]+([AZ\s]+?)(?=Modelo|N[°º]|Peso|$)',
-        r'Fabricante[:\s]+([AZ]+)',
-    ]
-    para padrão em mfg_patterns:
-        correspondência = re.search(padrão, texto, re.IGNORECASE | re.MULTILINE)
-        se houver correspondência:
-            fabricante = match.group(1).strip()
-            fabricante = ' '.join(fabricante.split())
-            dados["fabricante"] = fabricante.upper()
-            quebrar
+    mfg_match = re.search(r'Fabricante[:\s]+([A-Z\s]+?)(?=Modelo|N[°º]|Peso|$)', text, re.IGNORECASE)
+    if mfg_match:
+        data["fabricante"] = mfg_match.group(1).strip().upper()
     
-    # Extrair Modelo
-    padrões_do_modelo = [
-        r'Modelo[:\s]+([A-Z0-9\s-]+?)(?=N[°º]|Peso|Série|Fabricante|$)',
-        r'Modelo[:\s]+([A-Z0-9\s-]+)',
-    ]
-    para cada padrão em model_patterns:
-        correspondência = re.search(padrão, texto, re.IGNORECASE | re.MULTILINE)
-        se houver correspondência:
-            modelo = match.group(1).strip()
-            modelo = ' '.join(modelo.split())
-            data["modelo"] = modelo.upper()
-            quebrar
+    model_match = re.search(r'Modelo[:\s]+([A-Z0-9\s-]+?)(?=N[°º]|Peso|Série|$)', text, re.IGNORECASE)
+    if model_match:
+        data["modelo"] = model_match.group(1).strip().upper()
     
-    retornar dados
+    return data
 
-manipulador de classe (BaseHTTPRequestHandler):
+class handler(BaseHTTPRequestHandler):
     def do_POST(self):
-        tentar:
-            # Ler o conteúdo do arquivo PDF
-            content_length = int(self.headers['Content-Length'])
+        try:
+            content_length = int(self.headers.get('Content-Length', 0))
             pdf_bytes = self.rfile.read(content_length)
             
-            # Extrair texto do PDF
-            texto = extrair_texto_do_pdf(bytes_pdf)
+            text = extract_text_from_pdf(pdf_bytes)
+            text_upper = text.upper()
             
-            # Detectar tipo de certificado baseado no conteúdo
-            texto_maiúsculo = texto.maiúsculo()
+            if 'CAAR' in text_upper or ('CPF' in text_upper and 'ANAC' not in text_upper):
+                result = extract_caar_data(text)
+            elif 'ANAC' in text_upper or 'PS-' in text:
+                result = extract_anac_data(text)
+            else:
+                result = {"type": "unknown", "error": "Tipo não identificado"}
             
-            se 'CAAR' estiver em text_upper ou 'PILOTO' estiver em text_upper ou ('CPF' estiver em text_upper e 'ANAC' não estiver em text_upper):
-                resultado = extrair_dados_caar(texto)
-            elif 'ANAC' in text_upper or 'AERONAVE' in text_upper or 'PS-' in text:
-                resultado = extrair_dados_anac(texto)
-            outro:
-                # Tentar ambos e retornar o que tiver mais dados
-                caar = extract_caar_data(texto)
-                anac = extrair_dados_anac(texto)
-                
-                if caar["nome"] ou caar["cpf"]:
-                    resultado = carro
-                elif anac["registro"] ou anac["fabricante"]:
-                    resultado = anac
-                outro:
-                    resultado = {
-                        "tipo": "desconhecido",
-                        "error": "Não foi possível identificar o tipo de certificado"
-                    }
-            
-            # Adicione o texto completo para depuração (opcional)
-            resultado["_debug_text_length"] = len(texto)
-            
-            #orgr resposta JSON
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
-            self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
-            self.send_header('Access-Control-Allow-Headers', 'Content-Type')
             self.end_headers()
             self.wfile.write(json.dumps(result, ensure_ascii=False).encode('utf-8'))
             
-        exceto Exception como e:
-            #erro
+        except Exception as e:
             self.send_response(500)
             self.send_header('Content-type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
-            resposta_de_erro = {
-                "tipo": "erro",
-                "erro": str(e),
-                "message": "Erro ao processar certificado. Preencha os dados manualmente."
-            }
-            self.wfile.write(json.dumps(error_response, ensure_ascii=False).encode('utf-8'))
+            self.wfile.write(json.dumps({"type": "error", "error": str(e)}).encode())
     
     def do_OPTIONS(self):
-        """OPÇÕES de resposta a requisições (preflight CORS)"""
         self.send_response(200)
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'POST, OPTIONS')
